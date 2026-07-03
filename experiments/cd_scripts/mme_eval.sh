@@ -1,15 +1,14 @@
 seed=5
 dataset_name="mme"
-question_file="/data/ce/RITUAL/experiments/data/MME_Benchmark_release_version/mme_hallucination.jsonl"
-image_folder="/data/ce/RITUAL/experiments/data/MME_Benchmark_release_version"
-
+question_file="/workspace/datasets/MME_Benchmark_release_version/mme_hallucination.jsonl"
+image_folder="/workspace/datasets/MME_Benchmark_release_version"
 # llava
-# model="llava"
-# model_path="/data/ce/model/llava-v1.5-7b"
+ model="llava"
+ model_path="/workspace/models/llava-v1.5-7b"
 
 # instructblip
-model="instructblip"
-model_path=None
+#model="instructblip"
+#model_path=None
 
 # model="qwen-vl"
 # model_path="/data/zifu/model/Qwen-VL-Chat"
