@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    GT = get_gt(data_path='/data/ce/RITUAL/experiments/data/MME_Benchmark_release_version')
+    GT = get_gt(data_path='/workspace/datasets/MME_Benchmark_release_version')
     # result_dir = os.path.join('./experiments/output', 'mme_answers', args.model, str(args.seed))
     result_dir = os.path.join(args.log_path, 'mme_answers')
     os.makedirs(result_dir, exist_ok=True)
