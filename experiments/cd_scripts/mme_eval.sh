@@ -13,7 +13,7 @@ image_folder="/workspace/datasets/MME_Benchmark_release_version"
 # model="qwen-vl"
 # model_path="/data/zifu/model/Qwen-VL-Chat"
 
-gpu=1
+gpu=0
 export CUDA_VISIBLE_DEVICES=${gpu}
 
 use_ritual=False
