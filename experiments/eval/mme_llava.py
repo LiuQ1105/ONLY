@@ -138,6 +138,7 @@ def eval_model(args):
                     use_vcd=args.use_vcd,
                     use_m3id=args.use_m3id,
                     use_only=args.use_only,
+                    enhance_layer_index=0,
                     ritual_alpha_pos=args.ritual_alpha_pos,
                     ritual_alpha_neg=args.ritual_alpha_neg,
                     ritual_beta=args.ritual_beta,
