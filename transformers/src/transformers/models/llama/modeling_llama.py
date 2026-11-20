@@ -259,12 +259,45 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
+def _apply_adhh_last_query(attn_weights: torch.Tensor, config, layer_idx: Optional[int]):
+    """Apply AD-HH on the last query row of selected attention heads."""
+    if getattr(config, "intervention", "none") != "adhh" or layer_idx is None:
+        return attn_weights
+    img_start = getattr(config, "img_start_pos", None)
+    img_length = getattr(config, "img_length", None)
+    if img_start is None or img_length is None:
+        return attn_weights
+
+    img_start, img_length = int(img_start), int(img_length)
+    text_start = img_start + img_length
+    key_len = attn_weights.size(-1)
+    if img_start < 0 or img_length <= 0 or text_start >= key_len:
+        return attn_weights
+
+    selected = getattr(config, "intervention_heads", ()) or ()
+    heads = [int(head) for layer, head in selected if int(layer) == int(layer_idx)]
+    if not heads:
+        return attn_weights
+
+    out = attn_weights.clone()
+    row = out[:, :, -1, :]  # [batch, heads, key_len]
+    text_mass = row[:, :, text_start:].sum(dim=-1)
+    trigger = text_mass >= float(getattr(config, "adhh_threshold", 0.4))
+    for head in heads:
+        if not 0 <= head < row.size(1):
+            raise IndexError(f"AD-HH head {head} outside [0, {row.size(1)})")
+        row[:, head, text_start:] *= (~trigger[:, head]).to(row.dtype).unsqueeze(-1)
+    out[:, :, -1, :] = row
+    return out
+
+
 class LlamaAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: LlamaConfig):
+    def __init__(self, config: LlamaConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
+        self.layer_idx = layer_idx
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.hidden_size // self.num_heads
@@ -523,6 +556,8 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        # Intervene on the ordinary attention path; keep ONLY's CD branch intact.
+        attn_weights = _apply_adhh_last_query(attn_weights, self.config, self.layer_idx)
         attn_output = torch.matmul(attn_weights, value_states)
 
 
@@ -590,10 +625,10 @@ class LlamaAttention(nn.Module):
 
 
 class LlamaDecoderLayer(nn.Module):
-    def __init__(self, config: LlamaConfig):
+    def __init__(self, config: LlamaConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = LlamaAttention(config=config)
+        self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx)
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -807,7 +842,9 @@ class LlamaModel(LlamaPreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.layers = nn.ModuleList([LlamaDecoderLayer(config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [LlamaDecoderLayer(config, layer_idx=i) for i in range(config.num_hidden_layers)]
+        )
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False

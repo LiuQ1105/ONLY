@@ -50,6 +50,20 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+
+def parse_adhh_heads(value):
+    """Parse comma-separated layer:head pairs, e.g. 20:3,23:11."""
+    if not value.strip():
+        return []
+    try:
+        pairs = []
+        for item in value.split(","):
+            layer, head = item.split(":", 1)
+            pairs.append([int(layer), int(head)])
+        return pairs
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("--adhh_heads must look like '20:3,23:11'") from exc
+
 def eval_model(args):
     # Model
     disable_torch_init()
@@ -117,6 +131,19 @@ def eval_model(args):
         prompt = conv.get_prompt()
 
         input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
+        if args.use_adhh:
+            image_positions = (input_ids[0] == IMAGE_TOKEN_INDEX).nonzero(as_tuple=True)[0]
+            if image_positions.numel() != 1:
+                raise ValueError(
+                    f"AD-HH expects exactly one image sentinel, found {image_positions.numel()}"
+                )
+            model.config.intervention = "adhh"
+            model.config.intervention_heads = args.adhh_heads
+            model.config.adhh_threshold = args.adhh_threshold
+            model.config.img_start_pos = int(image_positions[0])
+            model.config.img_length = args.adhh_img_length
+        else:
+            model.config.intervention = "none"
         stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
@@ -138,7 +165,7 @@ def eval_model(args):
                     use_vcd=args.use_vcd,
                     use_m3id=args.use_m3id,
                     use_only=args.use_only,
-                    enhance_layer_index=0,
+                    enhance_layer_index=args.enhance_layer_index,
                     ritual_alpha_pos=args.ritual_alpha_pos,
                     ritual_alpha_neg=args.ritual_alpha_neg,
                     ritual_beta=args.ritual_beta,
@@ -191,6 +218,11 @@ if __name__ == "__main__":
     parser.add_argument("--use_m3id", type=str2bool, default=False)
     
     parser.add_argument("--use_only", type=str2bool, default=False)
+    parser.add_argument("--enhance_layer_index", type=int, default=0)
+    parser.add_argument("--use_adhh", type=str2bool, default=False)
+    parser.add_argument("--adhh_threshold", type=float, default=0.4)
+    parser.add_argument("--adhh_heads", type=parse_adhh_heads, default=[])
+    parser.add_argument("--adhh_img_length", type=int, default=576)
     
     parser.add_argument("--ritual_alpha_pos", type=float, default=3)
     parser.add_argument("--ritual_alpha_neg", type=float, default=1)

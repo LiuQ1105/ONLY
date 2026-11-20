@@ -50,6 +50,20 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+def parse_adhh_heads(value):
+    """Parse comma-separated layer:head pairs, e.g. 20:3,23:11."""
+    if not value.strip():
+        return []
+    try:
+        pairs = []
+        for item in value.split(","):
+            layer, head = item.split(":", 1)
+            pairs.append([int(layer), int(head)])
+        return pairs
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("--adhh_heads must look like '20:3,23:11'") from exc
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="POPE evaluation on LVLMs.")
     parser.add_argument("--model_path", type=str, default="/mnt/server8_hard1/donguk/checkpoints/llava-v1.5-7b")
@@ -76,6 +90,10 @@ def parse_args():
     parser.add_argument("--use_m3id", type=str2bool, default=False)
     parser.add_argument("--use_only", type=str2bool, default=False)
     parser.add_argument("--enhance_layer_index", type=int, default=0)
+    parser.add_argument("--use_adhh", type=str2bool, default=False)
+    parser.add_argument("--adhh_threshold", type=float, default=0.4)
+    parser.add_argument("--adhh_heads", type=parse_adhh_heads, default=[])
+    parser.add_argument("--adhh_img_length", type=int, default=576)
     
     parser.add_argument("--ritual_alpha_pos", type=float, default=3)
     parser.add_argument("--ritual_alpha_neg", type=float, default=1)
@@ -155,7 +173,11 @@ def main():
             args.log_path, exist_ok=True
         )  # Make results folder (holds all experiment subfolders)
         model_string_name = args.model_path.split("/")[-1]
-        if args.use_ritual:
+        if args.use_adhh and args.use_only:
+            method_name = "ONLY_ADHH"
+        elif args.use_adhh:
+            method_name = "ADHH"
+        elif args.use_ritual:
             method_name = "RITUAL"
         elif args.use_vcd:
             method_name = "VCD"
@@ -165,7 +187,7 @@ def main():
             method_name = "ONLY"
         else:
             method_name = "Regular"
-        experiment_dir = f"{args.log_path}/pope/{model_string_name}/{method_name}_{args.dataset_name}_{args.type}_{args.ritual_alpha_pos}_{args.ritual_alpha_neg}_{args.ritual_beta}_{args.js_gamma}_layer_{args.enhance_layer_index}"  # Create an experiment folder
+        experiment_dir = f"{args.log_path}/pope/{model_string_name}/{method_name}_{args.dataset_name}_{args.type}_{args.ritual_alpha_pos}_{args.ritual_alpha_neg}_{args.ritual_beta}_{args.js_gamma}_layer_{args.enhance_layer_index}_adhh_{args.use_adhh}_{args.adhh_threshold}"  # Create an experiment folder
         os.makedirs(experiment_dir, exist_ok=True)
         logger = create_logger(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
@@ -273,6 +295,19 @@ def main():
         prompt_out = conv_out.get_prompt()
         
         input_ids = tokenizer_image_token(prompt_out, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
+        if args.use_adhh:
+            image_positions = (input_ids[0] == IMAGE_TOKEN_INDEX).nonzero(as_tuple=True)[0]
+            if image_positions.numel() != 1:
+                raise ValueError(
+                    f"AD-HH expects exactly one image sentinel, found {image_positions.numel()}"
+                )
+            model.config.intervention = "adhh"
+            model.config.intervention_heads = args.adhh_heads
+            model.config.adhh_threshold = args.adhh_threshold
+            model.config.img_start_pos = int(image_positions[0])
+            model.config.img_length = args.adhh_img_length
+        else:
+            model.config.intervention = "none"
         stop_str = conv_out.sep if conv_out.sep_style != SeparatorStyle.TWO else conv_out.sep2
 
         # ==============================================
