@@ -70,6 +70,8 @@ def eval_model(args):
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
+    # Head ablation is independent from the conditional AD-HH intervention.
+    model.config.ablation_heads = args.ablate_heads
 
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     # questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
@@ -222,6 +224,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_adhh", type=str2bool, default=False)
     parser.add_argument("--adhh_threshold", type=float, default=0.4)
     parser.add_argument("--adhh_heads", type=parse_adhh_heads, default=[])
+    parser.add_argument("--ablate_heads", type=parse_adhh_heads, default=[],
+                        help="Fully ablate selected attention heads, e.g. 15:0,15:1; independent of AD-HH")
     parser.add_argument("--adhh_img_length", type=int, default=576)
     
     parser.add_argument("--ritual_alpha_pos", type=float, default=3)

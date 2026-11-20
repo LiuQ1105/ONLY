@@ -290,6 +290,31 @@ def _apply_adhh_last_query(attn_weights: torch.Tensor, config, layer_idx: Option
     out[:, :, -1, :] = row
     return out
 
+def _apply_head_ablation(attn_weights: torch.Tensor, config, layer_idx: Optional[int]):
+    """Zero complete attention-head contributions on the ordinary attention path.
+
+    This is independent of AD-HH and leaves ONLY's CD branch unchanged.
+    No softmax renormalization is applied after masking.
+    """
+    selected = getattr(config, "ablation_heads", ()) or ()
+    if layer_idx is None or not selected:
+        return attn_weights
+
+    heads = [
+        int(head) for layer, head in selected if int(layer) == int(layer_idx)
+    ]
+    if not heads:
+        return attn_weights
+
+    for head in heads:
+        if head < 0 or head >= attn_weights.size(1):
+            raise IndexError(
+                f"Ablation head {head} outside [0, {attn_weights.size(1)})"
+            )
+    out = attn_weights.clone()
+    out[:, heads, :, :] = 0
+    return out
+
 
 class LlamaAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
@@ -558,6 +583,7 @@ class LlamaAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         # Intervene on the ordinary attention path; keep ONLY's CD branch intact.
         attn_weights = _apply_adhh_last_query(attn_weights, self.config, self.layer_idx)
+        attn_weights = _apply_head_ablation(attn_weights, self.config, self.layer_idx)
         attn_output = torch.matmul(attn_weights, value_states)
 
 
