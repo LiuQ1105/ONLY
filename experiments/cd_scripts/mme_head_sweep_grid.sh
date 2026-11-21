@@ -54,4 +54,4 @@ for ((layer=LAYER_START; layer<=LAYER_END; layer++)); do
     bash experiments/cd_scripts/mme_head_sweep_layer15.sh
 done
 
-python experiments/eval/plot_full_head_heatmap.py --root "$OUT"
+python experiments/eval/plot_full_head_heatmap.py --root "$OUT" --allow-partial
